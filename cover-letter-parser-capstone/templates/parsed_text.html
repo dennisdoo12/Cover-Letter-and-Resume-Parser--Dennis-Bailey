@@ -1,0 +1,18 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Extracted Cover Letter Text</title><link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}"></head>
+<body><main class="container"><section class="hero"><p class="tag">COVER LETTER PARSER</p>
+<h1>Extracted Cover Letter Text</h1><p id="parsedFilename" class="subtitle">Uploaded cover letter</p></section>
+<section class="panel"><div class="text-page-header"><h2>Complete Parsed Text</h2>
+<button id="copyTextButton" type="button">Copy Text</button></div>
+<pre id="fullExtractedText" class="extracted-text">No extracted text is currently available. Return to the upload page and analyze a cover letter.</pre></section>
+<div class="page-actions"><a class="text-page-button" href="{{ url_for('index') }}">← Back to Cover Letter Analysis</a></div>
+</main><script>
+const text=sessionStorage.getItem("extractedCoverLetterText");
+const name=sessionStorage.getItem("coverLetterFilename");
+if(text) document.getElementById("fullExtractedText").textContent=text;
+if(name) document.getElementById("parsedFilename").textContent=name;
+document.getElementById("copyTextButton").addEventListener("click",async()=>{
+if(!text)return; try{await navigator.clipboard.writeText(text);event.target.textContent="Copied!";
+setTimeout(()=>event.target.textContent="Copy Text",1500)}catch{event.target.textContent="Copy failed"}});
+</script></body></html>

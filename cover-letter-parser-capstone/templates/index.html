@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Cover Letter Parser</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+<main class="container">
+<section class="hero"><p class="tag">CAPSTONE PROJECT</p><h1>Cover Letter Parser & Score</h1>
+<p class="subtitle">Upload a cover letter to extract applicant information, identify skills, generate a summary, and receive a transparent score from 1 to 100.</p></section>
+
+<section class="panel upload-panel">
+<form id="coverLetterForm">
+<label class="drop-zone" id="dropZone" for="coverLetterInput">
+<input id="coverLetterInput" type="file" name="cover_letter" accept=".pdf,.docx,.txt" hidden>
+<div class="upload-icon">↑</div><strong>Choose a cover letter</strong><span>PDF, DOCX, or TXT</span>
+</label>
+<p id="selectedFile" class="selected-file">No file selected</p>
+<label class="field-label" for="jobDescription">Job Description <span class="optional">(optional)</span></label>
+<textarea id="jobDescription" rows="7" placeholder="Paste the job description to calculate job relevance and keyword matching."></textarea>
+<button id="analyzeButton" type="submit">Analyze Cover Letter</button>
+</form>
+<div id="status" class="status hidden"></div>
+</section>
+
+<section id="results" class="hidden">
+<section class="panel score-panel"><div><p class="tag">OVERALL RATING</p>
+<div class="score-line"><span id="score">0</span><span class="max-score">/100</span></div>
+<p id="rating" class="rating">—</p></div><div class="score-circle"><span id="ringScore">0</span></div></section>
+
+<div class="grid">
+<section class="panel"><h2>Applicant Information</h2><dl class="details">
+<div><dt>Name</dt><dd id="name">—</dd></div><div><dt>Email</dt><dd id="email">—</dd></div>
+<div><dt>Phone</dt><dd id="phone">—</dd></div><div><dt>LinkedIn</dt><dd id="linkedin">—</dd></div>
+<div><dt>Word Count</dt><dd id="wordCount">—</dd></div></dl></section>
+<section class="panel"><h2>Detected Skills</h2><div id="skills" class="chips"></div></section>
+</div>
+
+<section class="panel"><h2>Cover Letter Summary</h2><p id="summary" class="summary-text">—</p></section>
+<section class="panel"><h2>Score Breakdown</h2><div id="categories"></div></section>
+<section id="jobMatchPanel" class="panel hidden"><h2>Job Description Match</h2>
+<p class="match-score">Keyword Match: <strong id="matchPercentage">0%</strong></p>
+<div id="matchedKeywords" class="chips"></div></section>
+
+<div class="grid"><section class="panel"><h2>Strengths</h2><ul id="strengths"></ul></section>
+<section class="panel"><h2>Ways to Improve</h2><ul id="improvements"></ul></section></div>
+
+<section class="panel extracted-text-link"><h2>Full Extracted Text</h2>
+<p>View all text extracted from the uploaded cover letter.</p>
+<a class="text-page-button" href="{{ url_for('parsed_text_page') }}">View Extracted Text</a></section>
+</section>
+</main>
+<script src="{{ url_for('static', filename='app.js') }}"></script>
+</body></html>
