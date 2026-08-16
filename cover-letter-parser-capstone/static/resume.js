@@ -1,28 +1,66 @@
-const form = document.getElementById("coverLetterForm");
-const input = document.getElementById("coverLetterInput");
-const dropZone = document.getElementById("dropZone");
-const selectedFile = document.getElementById("selectedFile");
-const jobDescription = document.getElementById("jobDescription");
-const analyzeButton = document.getElementById("analyzeButton");
-const statusBox = document.getElementById("status");
-const results = document.getElementById("results");
+const form =
+    document.getElementById(
+        "resumeForm"
+    );
+
+
+const input =
+    document.getElementById(
+        "resumeInput"
+    );
+
+
+const dropZone =
+    document.getElementById(
+        "dropZone"
+    );
+
+
+const selectedFile =
+    document.getElementById(
+        "selectedFile"
+    );
+
+
+const jobDescription =
+    document.getElementById(
+        "jobDescription"
+    );
+
+
+const analyzeButton =
+    document.getElementById(
+        "analyzeButton"
+    );
+
+
+const statusBox =
+    document.getElementById(
+        "status"
+    );
+
+
+const results =
+    document.getElementById(
+        "results"
+    );
+
 
 
 const categoryMax = {
 
     "Contact Information": 10,
 
-    "Professional Structure": 15,
+    "Resume Structure": 20,
 
-    "Job Relevance": 20,
+    "Skills and Job Relevance": 25,
 
-    "Skills and Qualifications": 20,
+    "Experience Impact": 20,
 
-    "Writing Clarity": 15,
+    "Education": 10,
 
-    "Personalization": 10,
+    "ATS Readability": 15
 
-    "Completeness": 10
 };
 
 
@@ -95,6 +133,7 @@ dropZone.addEventListener(
             input.files =
                 event.dataTransfer.files;
 
+
             selectedFile.textContent =
                 event.dataTransfer
                     .files[0]
@@ -117,7 +156,7 @@ form.addEventListener(
         if (!input.files.length) {
 
             showStatus(
-                "Choose a cover letter first."
+                "Choose a resume first."
             );
 
             return;
@@ -125,14 +164,16 @@ form.addEventListener(
         }
 
 
-        analyzeButton.disabled = true;
+        analyzeButton.disabled =
+            true;
+
 
         analyzeButton.textContent =
             "Analyzing...";
 
 
         showStatus(
-            "Reading and evaluating your cover letter..."
+            "Reading and evaluating your resume..."
         );
 
 
@@ -146,7 +187,7 @@ form.addEventListener(
 
 
         data.append(
-            "cover_letter",
+            "resume",
             input.files[0]
         );
 
@@ -162,7 +203,7 @@ form.addEventListener(
 
             const response =
                 await fetch(
-                    "/api/parse",
+                    "/api/parse-resume",
                     {
                         method: "POST",
                         body: data
@@ -185,19 +226,21 @@ form.addEventListener(
 
 
             sessionStorage.setItem(
-                "extractedCoverLetterText",
+                "extractedResumeText",
                 result.extracted_text || ""
             );
 
 
             sessionStorage.setItem(
-                "coverLetterFilename",
+                "resumeFilename",
                 result.filename
                 || input.files[0].name
             );
 
 
-            renderResults(result);
+            renderResults(
+                result
+            );
 
 
             statusBox.classList.add(
@@ -209,19 +252,24 @@ form.addEventListener(
 
         catch (error) {
 
+
             showStatus(
                 error.message
             );
+
 
         }
 
         finally {
 
+
             analyzeButton.disabled =
                 false;
 
+
             analyzeButton.textContent =
-                "Analyze Cover Letter";
+                "Analyze Resume";
+
 
         }
 
@@ -234,6 +282,7 @@ function showStatus(message) {
 
     statusBox.textContent =
         message;
+
 
     statusBox.classList.remove(
         "hidden"
@@ -300,6 +349,7 @@ function renderChips(
 
     items.forEach(item => {
 
+
         const span =
             document.createElement(
                 "span"
@@ -317,6 +367,7 @@ function renderChips(
         container.appendChild(
             span
         );
+
 
     });
 
@@ -356,6 +407,7 @@ function renderList(
         list.appendChild(
             li
         );
+
 
     });
 
@@ -420,6 +472,7 @@ function renderCategories(scores) {
 
                 </div>
 
+
                 <div class="bar">
 
                     <span
@@ -435,6 +488,7 @@ function renderCategories(scores) {
                 row
             );
 
+
         }
     );
 
@@ -442,7 +496,37 @@ function renderCategories(scores) {
 
 
 
+function renderSections(sections) {
+
+
+    const found =
+        Object.entries(
+            sections || {}
+        )
+
+        .filter(
+            ([, present]) =>
+                present
+        )
+
+        .map(
+            ([name]) =>
+                name
+        );
+
+
+    renderChips(
+        "sectionsFound",
+        found,
+        "No standard resume sections were confidently detected."
+    );
+
+}
+
+
+
 function renderJobMatch(match) {
+
 
     const panel =
         document.getElementById(
@@ -455,11 +539,14 @@ function renderJobMatch(match) {
         || match.match_percentage === null
     ) {
 
+
         panel.classList.add(
             "hidden"
         );
 
+
         return;
+
 
     }
 
@@ -477,45 +564,11 @@ function renderJobMatch(match) {
     );
 
 
-    const missingSection =
-        document.getElementById(
-            "missingKeywordsSection"
-        );
-
-
-    if (missingSection) {
-
-
-        if (
-            match.missing_keywords?.length
-        ) {
-
-
-            renderChips(
-                "missingKeywords",
-                match.missing_keywords,
-                "No important missing keywords were detected."
-            );
-
-
-            missingSection.classList.remove(
-                "hidden"
-            );
-
-
-        }
-
-        else {
-
-
-            missingSection.classList.add(
-                "hidden"
-            );
-
-
-        }
-
-    }
+    renderChips(
+        "missingKeywords",
+        match.missing_keywords,
+        "No important missing keywords were detected."
+    );
 
 
     panel.classList.remove(
@@ -581,6 +634,12 @@ function renderResults(data) {
 
 
     document.getElementById(
+        "bulletCount"
+    ).textContent =
+        data.bullet_count ?? "—";
+
+
+    document.getElementById(
         "summary"
     ).textContent =
         safe(data.summary);
@@ -590,6 +649,11 @@ function renderResults(data) {
         "skills",
         data.skills,
         "No skills matched the current skill dictionary."
+    );
+
+
+    renderSections(
+        data.sections_found
     );
 
 
