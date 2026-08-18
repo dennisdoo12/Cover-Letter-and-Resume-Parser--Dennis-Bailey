@@ -1,0 +1,25 @@
+{
+  "name": "resumerank-backend",
+  "version": "1.0.0",
+  "description": "Backend API for ResumeRank capstone project",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "keywords": [
+    "resumerank",
+    "backend",
+    "express",
+    "sqlite"
+  ],
+  "author": "Bayram Charyyev",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "cors": "^2.8.6",
+    "express": "^5.2.1",
+    "multer": "^2.2.0",
+    "sqlite3": "^6.0.1"
+  }
+}
