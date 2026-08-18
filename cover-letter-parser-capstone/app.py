@@ -1,5 +1,6 @@
 from pathlib import Path
 import uuid
+import requests
 
 from flask import Flask, jsonify, render_template, request
 from werkzeug.utils import secure_filename
@@ -15,6 +16,90 @@ UPLOAD_FOLDER.mkdir(exist_ok=True)
 ALLOWED_EXTENSIONS = {"pdf", "docx", "txt"}
 
 app.config["MAX_CONTENT_LENGTH"] = 8 * 1024 * 1024
+
+BACKEND_URL = "http://localhost:5050"
+
+
+def normalize_skills(skills):
+    if not skills:
+        return []
+
+    if isinstance(skills, list):
+        return skills
+
+    if isinstance(skills, str):
+        return [
+            skill.strip()
+            for skill in skills.split(",")
+            if skill.strip()
+        ]
+
+    return []
+
+
+def build_backend_payload(result, original_name, document_type):
+    skills = normalize_skills(result.get("skills"))
+
+    return {
+        "file": original_name,
+        "filename": original_name,
+        "document_type": document_type,
+
+        "name": result.get("name") or result.get("applicant_name") or "Unknown Applicant",
+        "email": result.get("email"),
+        "phone": result.get("phone"),
+        "linkedin": result.get("linkedin"),
+        "github": result.get("github"),
+
+        "skills": skills,
+        "sections": result.get("sections", {}),
+        "word_count": result.get("word_count"),
+        "bullet_count": result.get("bullet_count"),
+        "summary": result.get("summary"),
+        "score": result.get("score") or result.get("quality_score"),
+        "rating": result.get("rating"),
+        "strengths": result.get("strengths", []),
+        "improvements": result.get("improvements", []),
+        "extracted_text": result.get("extracted_text", ""),
+
+        "full_parser_output": result
+    }
+
+
+def send_to_backend(parsed_result):
+    try:
+        login_response = requests.post(
+            f"{BACKEND_URL}/api/auth/login",
+            json={
+                "username": "dummyUser",
+                "password": "SecretPassWord1223"
+            },
+            timeout=10
+        )
+
+        token = login_response.json().get("token")
+
+        if not token:
+            print("Backend login failed:", login_response.text)
+            return None
+
+        backend_response = requests.post(
+            f"{BACKEND_URL}/api/cover-letter-results",
+            json=parsed_result,
+            headers={
+                "Authorization": f"Bearer {token}"
+            },
+            timeout=10
+        )
+
+        print("Backend status:", backend_response.status_code)
+        print("Backend response:", backend_response.text)
+
+        return backend_response
+
+    except Exception as exc:
+        print("Could not send parser result to backend:", exc)
+        return None
 
 
 def allowed_file(filename):
@@ -99,6 +184,14 @@ def parse_cover_letter_file():
         result["filename"] = original_name
         result["extracted_text"] = text
 
+        backend_payload = build_backend_payload(
+            result,
+            original_name,
+            "cover_letter"
+        )
+
+        send_to_backend(backend_payload)
+
         return jsonify(result)
 
     except ValueError as exc:
@@ -141,6 +234,14 @@ def parse_resume_file():
 
         result["filename"] = original_name
         result["extracted_text"] = text
+
+        backend_payload = build_backend_payload(
+            result,
+            original_name,
+            "resume"
+        )
+
+        send_to_backend(backend_payload)
 
         return jsonify(result)
 
