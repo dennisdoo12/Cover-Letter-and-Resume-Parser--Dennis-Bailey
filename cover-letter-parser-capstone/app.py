@@ -5,7 +5,11 @@ import requests
 from flask import Flask, jsonify, render_template, request
 from werkzeug.utils import secure_filename
 
-from parser import read_document, parse_cover_letter, parse_resume
+# Dennis cover letter parser and file reader
+from parser import read_document, parse_cover_letter
+
+# Alex resume parser/matcher adapter
+from resume_adapter import parse_resume
 
 
 app = Flask(__name__)
@@ -37,13 +41,32 @@ def normalize_skills(skills):
     return []
 
 
-def build_backend_payload(result, original_name, document_type):
+def login_to_backend():
+    login_response = requests.post(
+        f"{BACKEND_URL}/api/auth/login",
+        json={
+            "username": "dummyUser",
+            "password": "SecretPassWord1223"
+        },
+        timeout=10
+    )
+
+    token = login_response.json().get("token")
+
+    if not token:
+        print("Backend login failed:", login_response.text)
+        return None
+
+    return token
+
+
+def build_cover_letter_payload(result, original_name):
     skills = normalize_skills(result.get("skills"))
 
     return {
         "file": original_name,
         "filename": original_name,
-        "document_type": document_type,
+        "document_type": "cover_letter",
 
         "name": result.get("name") or result.get("applicant_name") or "Unknown Applicant",
         "email": result.get("email"),
@@ -52,7 +75,7 @@ def build_backend_payload(result, original_name, document_type):
         "github": result.get("github"),
 
         "skills": skills,
-        "sections": result.get("sections", {}),
+        "sections": result.get("sections") or result.get("sections_found", {}),
         "word_count": result.get("word_count"),
         "bullet_count": result.get("bullet_count"),
         "summary": result.get("summary"),
@@ -66,39 +89,104 @@ def build_backend_payload(result, original_name, document_type):
     }
 
 
-def send_to_backend(parsed_result):
-    try:
-        login_response = requests.post(
-            f"{BACKEND_URL}/api/auth/login",
-            json={
-                "username": "dummyUser",
-                "password": "SecretPassWord1223"
-            },
-            timeout=10
-        )
+def build_resume_payload(result, original_name):
+    skills = normalize_skills(result.get("skills"))
 
-        token = login_response.json().get("token")
+    return {
+        "parsed": True,
+        "scored": True,
+        "file": original_name,
+
+        "name": result.get("name") or result.get("applicant_name") or "Unknown Applicant",
+        "email": result.get("email"),
+        "phone": result.get("phone"),
+
+        "skills": skills,
+        "experience_years": (
+            result.get("experience_years")
+            or result.get("years_experience")
+            or 0
+        ),
+
+        "jobId": 1,
+
+        "match_score": (
+            result.get("match_percentage")
+            or result.get("match_score")
+            or result.get("score")
+            or result.get("quality_score")
+            or 0
+        ),
+
+        "matched_skills": (
+            result.get("matched_skills")
+            or result.get("matched_keywords")
+            or []
+        ),
+
+        "missing_skills": (
+            result.get("missing_skills")
+            or result.get("missing_keywords")
+            or []
+        ),
+
+        "candidate_experience_years": (
+            result.get("experience_years")
+            or result.get("years_experience")
+            or 0
+        )
+    }
+
+
+def send_cover_letter_to_backend(payload):
+    try:
+        token = login_to_backend()
 
         if not token:
-            print("Backend login failed:", login_response.text)
             return None
 
         backend_response = requests.post(
             f"{BACKEND_URL}/api/cover-letter-results",
-            json=parsed_result,
+            json=payload,
             headers={
                 "Authorization": f"Bearer {token}"
             },
             timeout=10
         )
 
-        print("Backend status:", backend_response.status_code)
-        print("Backend response:", backend_response.text)
+        print("Cover letter backend status:", backend_response.status_code)
+        print("Cover letter backend response:", backend_response.text)
 
         return backend_response
 
     except Exception as exc:
-        print("Could not send parser result to backend:", exc)
+        print("Could not send cover letter result to backend:", exc)
+        return None
+
+
+def send_resume_to_backend(payload):
+    try:
+        token = login_to_backend()
+
+        if not token:
+            return None
+
+        backend_response = requests.post(
+            f"{BACKEND_URL}/api/parser-results",
+            json=payload,
+            headers={
+                "Authorization": f"Bearer {token}"
+            },
+            timeout=10
+        )
+
+        print("Resume backend status:", backend_response.status_code)
+        print("Resume backend response:", backend_response.text)
+
+        return backend_response
+
+    except Exception as exc:
+        print("Could not send resume result to backend:", exc)
         return None
 
 
@@ -184,13 +272,12 @@ def parse_cover_letter_file():
         result["filename"] = original_name
         result["extracted_text"] = text
 
-        backend_payload = build_backend_payload(
+        backend_payload = build_cover_letter_payload(
             result,
-            original_name,
-            "cover_letter"
+            original_name
         )
 
-        send_to_backend(backend_payload)
+        send_cover_letter_to_backend(backend_payload)
 
         return jsonify(result)
 
@@ -235,13 +322,12 @@ def parse_resume_file():
         result["filename"] = original_name
         result["extracted_text"] = text
 
-        backend_payload = build_backend_payload(
+        backend_payload = build_resume_payload(
             result,
-            original_name,
-            "resume"
+            original_name
         )
 
-        send_to_backend(backend_payload)
+        send_resume_to_backend(backend_payload)
 
         return jsonify(result)
 
