@@ -1,68 +1,155 @@
 """
 resume_adapter.py
 -----------------
-Bridges Alex's resume parser + matcher into Dennis's Flask app.
+Connects Alex's resume parser + matcher to Dennis's Flask resume UI.
 
-Dennis's app.py already:
-  - extracts the raw text from the upload, and
-  - calls  parse_resume(text, job_description)  expecting a result dict.
+Dennis's app.py sends this adapter:
+- already-extracted resume text
+- pasted job description text
 
-But Alex's parse_resume(file) takes a FILE PATH and returns a different shape.
-This adapter provides a drop-in  parse_resume(text, job_description)  that:
-  1. runs Alex's field extractors on the already-extracted text,
-  2. runs Alex's matcher against the job description,
-  3. returns a dict shaped the way app.py / the resume front-end expect
-     (name, email, phone, skills, score, matched/missing, etc.).
-
-USAGE in app.py — change the resume import from:
-    from parser import read_document, parse_cover_letter, parse_resume
-to keep Dennis's cover-letter parser but use Alex's for resumes:
-    from parser import read_document, parse_cover_letter
-    from resume_adapter import parse_resume         # Alex's, adapted
-
-Everything else in the /api/parse-resume route stays the same.
+This adapter returns a result dict that the UI can display and that Bayram's
+backend can save as ranking data.
 """
 
 import re
 
-# Alex's field extractors (operate on text)
 from resume_parser import (
-    extract_name, extract_email, extract_phone,
-    extract_skills, extract_experience_years,
+    extract_name,
+    extract_email,
+    extract_phone,
+    extract_skills,
+    extract_experience_years,
 )
-# Alex's matcher
+
 from matcher import match
 
 
 def _skills_from_job_text(job_description):
-    """Turn a pasted job-description string into a required-skills list by
-    running Alex's skill extractor over it (same canonical skills as resumes,
-    so matched/missing line up)."""
     return extract_skills(job_description or "")
 
 
 def _guess_min_experience(job_description):
-    """Pull a 'N years' minimum from the job text if present, else 0."""
     if not job_description:
         return 0
-    m = re.search(r"(\d{1,2})\+?\s*years?", job_description, re.I)
-    return int(m.group(1)) if m else 0
+
+    match_years = re.search(r"(\d{1,2})\+?\s*years?", job_description, re.I)
+
+    if match_years:
+        return int(match_years.group(1))
+
+    return 0
+
+
+def _detect_sections(text):
+    section_names = [
+        "Summary",
+        "Experience",
+        "Education",
+        "Skills",
+        "Projects",
+        "Certifications",
+    ]
+
+    found = {}
+
+    lowered_lines = [
+        line.strip().lower()
+        for line in (text or "").splitlines()
+        if line.strip()
+    ]
+
+    for section in section_names:
+        section_lower = section.lower()
+
+        found[section] = any(
+            line == section_lower
+            or line.startswith(section_lower + ":")
+            for line in lowered_lines
+        )
+
+    return found
+
+
+def _simple_summary(text):
+    clean_text = " ".join((text or "").split())
+
+    if not clean_text:
+        return None
+
+    if len(clean_text) <= 350:
+        return clean_text
+
+    return clean_text[:350] + "..."
+
+
+def _rating_from_score(score):
+    if score is None:
+        return None
+
+    if score >= 85:
+        return "Strong"
+
+    if score >= 70:
+        return "Good"
+
+    if score >= 50:
+        return "Average"
+
+    return "Needs Improvement"
+
+
+def _build_strengths(skills, matched_skills, sections, score):
+    strengths = []
+
+    if skills:
+        strengths.append("Resume includes detected technical skills.")
+
+    if matched_skills:
+        strengths.append("Resume matches some required job skills.")
+
+    if sections.get("Experience"):
+        strengths.append("Resume includes an Experience section.")
+
+    if sections.get("Education"):
+        strengths.append("Resume includes an Education section.")
+
+    if score is not None and score >= 80:
+        strengths.append("Resume has strong alignment with the job description.")
+
+    return strengths
+
+
+def _build_improvements(missing_skills, sections, experience_years):
+    improvements = []
+
+    if missing_skills:
+        improvements.append(
+            "Add or highlight missing job skills: "
+            + ", ".join(missing_skills)
+            + "."
+        )
+
+    if not sections.get("Experience"):
+        improvements.append("Add a clear Experience section.")
+
+    if not sections.get("Education"):
+        improvements.append("Add a clear Education section.")
+
+    if experience_years is None:
+        improvements.append("Include years of experience more clearly if possible.")
+
+    return improvements
 
 
 def parse_resume(text, job_description=""):
-    """Drop-in replacement for Dennis's parse_resume(text, job_description).
-
-    Returns a dict with the keys app.py / resume.js expect.
-    """
-    # 1) Extract structured fields from the resume text (Alex's extractors)
     name = extract_name(text)
     email = extract_email(text)
     phone = extract_phone(text)
     skills = extract_skills(text)
     experience_years = extract_experience_years(text)
 
-    # 2) Build a job profile from the pasted job description and run the matcher
     required_skills = _skills_from_job_text(job_description)
+
     job_profile = {
         "title": "Job",
         "required_skills": required_skills,
@@ -79,60 +166,84 @@ def parse_resume(text, job_description=""):
 
     if required_skills:
         match_result = match(parsed_for_match, job_profile)
+
         match_score = match_result.get("match_score")
         matched_skills = match_result.get("matched_skills", [])
         missing_skills = match_result.get("missing_skills", [])
         skill_score = match_result.get("skill_score")
         experience_score = match_result.get("experience_score")
     else:
-        # No job description pasted -> parse only, no match
-        match_score = None
+        match_score = 0
         matched_skills = []
         missing_skills = []
-        skill_score = None
-        experience_score = None
+        skill_score = 0
+        experience_score = 0
 
-    # 3) Return a dict shaped for app.py / the resume front-end.
-    #    (word_count / sections / summary etc. aren't produced by Alex's
-    #     resume pipeline, so they're provided as safe defaults.)
+    sections = _detect_sections(text)
+    summary = _simple_summary(text)
+    rating = _rating_from_score(match_score)
+
+    strengths = _build_strengths(
+        skills,
+        matched_skills,
+        sections,
+        match_score,
+    )
+
+    improvements = _build_improvements(
+        missing_skills,
+        sections,
+        experience_years,
+    )
+
     return {
         "name": name or "Unknown Applicant",
         "email": email,
         "phone": phone,
         "linkedin": None,
         "github": None,
+
         "skills": skills,
         "experience_years": experience_years,
 
-        # matching results
-        "match_percentage": match_score,     # app front-end key for the score
+        "match_percentage": match_score,
         "score": match_score,
-        "matched_keywords": matched_skills,  # matches Dennis's job_match keys
+        "matched_keywords": matched_skills,
         "missing_keywords": missing_skills,
-        "matched_skills": matched_skills,    # also provide Alex-style keys
+        "matched_skills": matched_skills,
         "missing_skills": missing_skills,
         "skill_score": skill_score,
         "experience_score": experience_score,
 
-        # fields Dennis's payload/front-end may look for (safe defaults)
-        "sections": {},
+        "sections": sections,
         "word_count": len((text or "").split()),
         "bullet_count": (text or "").count("\n- ") + (text or "").count("\u2022"),
-        "summary": None,
-        "rating": None,
-        "strengths": [],
-        "improvements": [],
+        "summary": summary,
+        "rating": rating,
+        "strengths": strengths,
+        "improvements": improvements,
     }
 
 
-# quick manual test
 if __name__ == "__main__":
     import json
+
     sample_resume = (
         "Sarah Mitchell\nsarah@email.com | (415) 555-0182\n"
+        "SUMMARY\n"
         "Backend developer with 6 years of experience.\n"
-        "Skills: Python, SQL, Docker, AWS, Node.js\n"
+        "SKILLS\n"
+        "Python, SQL, Docker, AWS, Node.js\n"
+        "EXPERIENCE\n"
+        "Built backend APIs.\n"
+        "EDUCATION\n"
+        "Computer Science Student\n"
     )
-    sample_job = "Looking for a backend developer with Python, SQL, Docker. 3+ years experience."
+
+    sample_job = (
+        "Looking for a backend developer with Python, SQL, Docker. "
+        "3+ years experience."
+    )
+
     result = parse_resume(sample_resume, sample_job)
     print(json.dumps(result, indent=2))
