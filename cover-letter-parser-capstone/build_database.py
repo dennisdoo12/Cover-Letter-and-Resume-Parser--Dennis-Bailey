@@ -4,9 +4,8 @@ from pathlib import Path
 
 
 BASE_DIR = Path(__file__).resolve().parent
-DATA_DIR = BASE_DIR / "onet_data"
+DATA_DIR = BASE_DIR / "database" / "onet_data"
 DB_PATH = BASE_DIR / "onet.db"
-
 
 def find_csv(keyword):
     """
