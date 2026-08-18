@@ -71,15 +71,55 @@ def _detect_sections(text):
 
 
 def _simple_summary(text):
-    clean_text = " ".join((text or "").split())
+    """Build a clean summary of the resume.
 
-    if not clean_text:
+    Prefers the resume's own SUMMARY / OBJECTIVE / PROFILE section if it has
+    one. Otherwise falls back to the first couple of sentences. Truncates on a
+    sentence boundary (not mid-word) so it doesn't cut off awkwardly.
+    """
+    if not text:
         return None
 
-    if len(clean_text) <= 350:
-        return clean_text
+    lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
 
-    return clean_text[:350] + "..."
+    # 1) Try to grab the resume's own summary-type section
+    section_headers = ("summary", "objective", "profile", "about")
+    for i, line in enumerate(lines):
+        low = line.lower().rstrip(":")
+        if low in section_headers:
+            # collect lines after the header until the next ALL-CAPS/section-like line
+            collected = []
+            for nxt in lines[i + 1:]:
+                # stop at the next section header (short all-caps line)
+                if nxt.isupper() and len(nxt.split()) <= 4:
+                    break
+                collected.append(nxt)
+                if len(" ".join(collected)) > 300:
+                    break
+            if collected:
+                summary = " ".join(collected)
+                return _truncate_on_sentence(summary, 300)
+
+    # 2) Fallback: first few sentences of the whole resume
+    clean_text = " ".join(text.split())
+    return _truncate_on_sentence(clean_text, 300)
+
+
+def _truncate_on_sentence(s, limit):
+    """Cut a string near `limit` chars, but on a sentence/word boundary so it
+    doesn't end mid-word."""
+    if len(s) <= limit:
+        return s
+    cut = s[:limit]
+    # prefer to end at the last sentence end
+    last_period = cut.rfind(". ")
+    if last_period > limit * 0.5:
+        return cut[:last_period + 1]
+    # otherwise end at the last full word
+    last_space = cut.rfind(" ")
+    if last_space > 0:
+        return cut[:last_space] + "..."
+    return cut + "..."
 
 
 def _rating_from_score(score):
@@ -172,12 +212,26 @@ def parse_resume(text, job_description=""):
         missing_skills = match_result.get("missing_skills", [])
         skill_score = match_result.get("skill_score")
         experience_score = match_result.get("experience_score")
+        semantic = match_result.get("semantic_score")  # present only if semantic on
+
+        # Build the Score Breakdown from the real matcher sub-scores.
+        # These explain WHY the match score is what it is.
+        category_scores = {
+            "Skill Match": skill_score if skill_score is not None else 0,
+            "Experience Match": experience_score if experience_score is not None else 0,
+        }
+        if semantic is not None:
+            category_scores["Semantic Match"] = semantic
     else:
-        match_score = 0
+        # No job description pasted -> we didn't attempt a match.
+        # Use None (not 0) so the UI can show "no job description" rather than
+        # a misleading 0/100 that makes the resume look like it failed.
+        match_score = None
         matched_skills = []
         missing_skills = []
-        skill_score = 0
-        experience_score = 0
+        skill_score = None
+        experience_score = None
+        category_scores = {}
 
     sections = _detect_sections(text)
     summary = _simple_summary(text)
@@ -214,6 +268,7 @@ def parse_resume(text, job_description=""):
         "missing_skills": missing_skills,
         "skill_score": skill_score,
         "experience_score": experience_score,
+        "category_scores": category_scores,
 
         "sections": sections,
         "word_count": len((text or "").split()),
