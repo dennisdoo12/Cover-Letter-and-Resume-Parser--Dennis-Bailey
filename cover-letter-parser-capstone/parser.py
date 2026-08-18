@@ -1,190 +1,22 @@
 import re
+import sqlite3
 from pathlib import Path
 
 from docx import Document
 from pypdf import PdfReader
 
 
-# --------------------------------------------------
-# SKILL DATABASE
-# --------------------------------------------------
+# ==================================================
+# DATABASE
+# ==================================================
 
-COMMON_SKILLS = [
+BASE_DIR = Path(__file__).resolve().parent
+ONET_DB = BASE_DIR / "onet.db"
 
-    # Programming
-    "Python",
-    "JavaScript",
-    "TypeScript",
-    "Java",
-    "C++",
-    "C#",
-    "C",
-    "Go",
-    "Rust",
-    "Ruby",
-    "PHP",
-    "Swift",
-    "Kotlin",
-    "R",
-    "MATLAB",
-    "Bash",
-    "PowerShell",
 
-    # Web Development
-    "HTML",
-    "CSS",
-    "React",
-    "Angular",
-    "Vue",
-    "Next.js",
-    "Node.js",
-    "Express",
-    "Flask",
-    "Django",
-    "FastAPI",
-    "REST API",
-    "GraphQL",
-
-    # Databases / Data
-    "SQL",
-    "PostgreSQL",
-    "MySQL",
-    "SQLite",
-    "MongoDB",
-    "Redis",
-    "Snowflake",
-    "Oracle",
-    "Microsoft SQL Server",
-    "ETL",
-    "Data Analysis",
-    "Data Visualization",
-    "Data Modeling",
-    "Machine Learning",
-    "Deep Learning",
-    "Natural Language Processing",
-    "NLP",
-    "Computer Vision",
-    "Pandas",
-    "NumPy",
-    "Scikit-learn",
-    "TensorFlow",
-    "PyTorch",
-    "Power BI",
-    "Tableau",
-    "Microsoft Excel",
-
-    # Cloud / DevOps
-    "AWS",
-    "Azure",
-    "Google Cloud",
-    "GCP",
-    "Docker",
-    "Kubernetes",
-    "Terraform",
-    "Ansible",
-    "Jenkins",
-    "GitHub Actions",
-    "CI/CD",
-
-    # IT / Infrastructure
-    "Linux",
-    "Windows",
-    "Windows Server",
-    "Active Directory",
-    "Microsoft 365",
-    "Intune",
-    "VMware",
-    "Networking",
-    "TCP/IP",
-    "DNS",
-    "DHCP",
-    "VPN",
-    "Firewalls",
-
-    # Cybersecurity
-    "Cybersecurity",
-    "Information Security",
-    "SIEM",
-    "SOC",
-    "EDR",
-    "Endpoint Security",
-    "Vulnerability Management",
-    "Incident Response",
-    "Identity and Access Management",
-    "IAM",
-
-    # Development Tools
-    "Git",
-    "GitHub",
-    "GitLab",
-    "Jira",
-    "Confluence",
-    "Agile",
-    "Scrum",
-    "Software Development",
-    "Software Testing",
-    "Unit Testing",
-    "API Testing",
-    "Debugging",
-    "Troubleshooting",
-
-    # IT Support
-    "Technical Support",
-    "IT Support",
-    "Help Desk",
-    "Service Desk",
-    "Hardware Support",
-    "Software Support",
-    "Ticketing Systems",
-    "Remote Support",
-    "System Administration",
-    "Network Administration",
-
-    # Business
-    "Project Management",
-    "Product Management",
-    "Risk Management",
-    "Stakeholder Management",
-    "Business Analysis",
-    "Requirements Gathering",
-    "Process Improvement",
-    "Quality Assurance",
-    "Documentation",
-    "Training",
-    "Customer Service",
-    "Sales",
-    "Marketing",
-    "Digital Marketing",
-    "Social Media",
-    "SEO",
-    "SEM",
-    "Google Analytics",
-
-    # Creative
-    "Adobe Photoshop",
-    "Adobe Premiere Pro",
-    "Adobe Illustrator",
-    "Figma",
-    "Canva",
-    "Video Editing",
-    "Graphic Design",
-    "WordPress",
-    "Mailchimp",
-
-    # Professional Skills
-    "Communication",
-    "Leadership",
-    "Teamwork",
-    "Collaboration",
-    "Problem Solving",
-    "Critical Thinking",
-    "Time Management",
-    "Organization",
-    "Research",
-    "Presentation",
-    "Writing"
-]
-
+# ==================================================
+# GENERAL CONFIGURATION
+# ==================================================
 
 ACTION_VERBS = [
     "achieved",
@@ -228,33 +60,157 @@ ACTION_VERBS = [
 
 
 STOP_WORDS = {
-    "the", "and", "for", "with", "that", "this",
-    "from", "your", "our", "you", "are", "will",
-    "job", "role", "position", "candidate",
-    "experience", "skills", "work", "team",
-    "company", "have", "has", "who", "but",
-    "not", "all", "can", "their", "they",
-    "its", "into", "about", "years", "year",
-    "required", "preferred", "responsibilities",
-    "requirements", "including", "using"
+    "the",
+    "and",
+    "for",
+    "with",
+    "that",
+    "this",
+    "from",
+    "your",
+    "our",
+    "you",
+    "are",
+    "will",
+    "job",
+    "role",
+    "position",
+    "candidate",
+    "experience",
+    "skills",
+    "work",
+    "team",
+    "company",
+    "have",
+    "has",
+    "who",
+    "but",
+    "not",
+    "all",
+    "can",
+    "their",
+    "they",
+    "its",
+    "into",
+    "about",
+    "years",
+    "year",
+    "required",
+    "preferred",
+    "responsibilities",
+    "requirements",
+    "including",
+    "using"
 }
 
 
-# --------------------------------------------------
+# ==================================================
+# DATABASE HELPERS
+# ==================================================
+
+def get_db_connection():
+    if not ONET_DB.exists():
+        raise FileNotFoundError(
+            f"O*NET database was not found at: {ONET_DB}"
+        )
+
+    connection = sqlite3.connect(ONET_DB)
+
+    connection.row_factory = sqlite3.Row
+
+    return connection
+
+
+def get_onet_software_skills():
+    """
+    Load every unique software / technology example from O*NET.
+
+    Expected table:
+        software_skills
+
+    Expected columns created by build_database.py:
+        workplace_example
+        hot_technology
+        in_demand
+    """
+
+    connection = get_db_connection()
+
+    try:
+        rows = connection.execute(
+            """
+            SELECT
+                workplace_example,
+                MAX(hot_technology) AS hot_technology,
+                MAX(in_demand) AS in_demand
+            FROM software_skills
+            WHERE workplace_example IS NOT NULL
+              AND TRIM(workplace_example) != ''
+            GROUP BY LOWER(workplace_example)
+            """
+        ).fetchall()
+
+        return [
+            {
+                "name": row["workplace_example"],
+                "hot_technology": (
+                    str(row["hot_technology"]).upper() == "Y"
+                ),
+                "in_demand": (
+                    str(row["in_demand"]).upper() == "Y"
+                )
+            }
+            for row in rows
+        ]
+
+    finally:
+        connection.close()
+
+
+def get_onet_essential_skill_names():
+    """
+    Load unique Essential Skill names from O*NET.
+    """
+
+    connection = get_db_connection()
+
+    try:
+        rows = connection.execute(
+            """
+            SELECT DISTINCT element_name
+            FROM essential_skills
+            WHERE element_name IS NOT NULL
+              AND TRIM(element_name) != ''
+            ORDER BY element_name
+            """
+        ).fetchall()
+
+        return [
+            row["element_name"]
+            for row in rows
+        ]
+
+    finally:
+        connection.close()
+
+
+# ==================================================
 # DOCUMENT READING
-# --------------------------------------------------
+# ==================================================
 
 def read_document(path):
 
     suffix = Path(path).suffix.lower()
 
     if suffix == ".txt":
+
         return Path(path).read_text(
             encoding="utf-8",
             errors="ignore"
         )
 
     if suffix == ".pdf":
+
         return "\n".join(
             (page.extract_text() or "").strip()
             for page in PdfReader(path).pages
@@ -265,28 +221,33 @@ def read_document(path):
         doc = Document(path)
 
         parts = [
-            p.text.strip()
-            for p in doc.paragraphs
-            if p.text.strip()
+            paragraph.text.strip()
+            for paragraph in doc.paragraphs
+            if paragraph.text.strip()
         ]
 
         for table in doc.tables:
+
             for row in table.rows:
+
                 for cell in row.cells:
 
                     if cell.text.strip():
+
                         parts.append(
                             cell.text.strip()
                         )
 
         return "\n".join(parts)
 
-    raise ValueError("Unsupported file type.")
+    raise ValueError(
+        "Unsupported file type."
+    )
 
 
-# --------------------------------------------------
+# ==================================================
 # BASIC EXTRACTION
-# --------------------------------------------------
+# ==================================================
 
 def extract(pattern, text):
 
@@ -296,7 +257,11 @@ def extract(pattern, text):
         re.IGNORECASE
     )
 
-    return match.group(0).strip() if match else None
+    return (
+        match.group(0).strip()
+        if match
+        else None
+    )
 
 
 def extract_name(text):
@@ -319,7 +284,10 @@ def extract_name(text):
 
     for line in lines:
 
-        low = line.lower().strip(" ,:")
+        low = (
+            line.lower()
+            .strip(" ,:")
+        )
 
         if (
             low in ignored
@@ -340,25 +308,114 @@ def extract_name(text):
                 for word in words
             )
         ):
+
             return line
 
     return None
 
 
-def extract_skills(text):
+def phrase_in_text(phrase, text):
+    """
+    Match an O*NET phrase against document text.
+
+    Examples:
+        Python
+        Microsoft Excel
+        Amazon Web Services AWS
+    """
+
+    phrase = phrase.strip()
+
+    if not phrase:
+        return False
+
+    pattern = (
+        r"(?<!\w)"
+        + re.escape(phrase)
+        + r"(?!\w)"
+    )
+
+    return bool(
+        re.search(
+            pattern,
+            text,
+            re.IGNORECASE
+        )
+    )
+
+
+# ==================================================
+# O*NET SKILL EXTRACTION
+# ==================================================
+
+def extract_onet_skills(text):
 
     found = []
 
-    for skill in COMMON_SKILLS:
+    seen = set()
 
-        if re.search(
-            rf"(?<!\w){re.escape(skill)}(?!\w)",
-            text,
-            re.I
+    for skill in get_onet_software_skills():
+
+        name = skill["name"]
+
+        normalized = name.lower()
+
+        if normalized in seen:
+            continue
+
+        if phrase_in_text(
+            name,
+            text
         ):
+
+            found.append(skill)
+
+            seen.add(normalized)
+
+    return found
+
+
+def extract_essential_skills(text):
+
+    found = []
+
+    for skill in get_onet_essential_skill_names():
+
+        if phrase_in_text(
+            skill,
+            text
+        ):
+
             found.append(skill)
 
     return found
+
+
+def extract_skills(text):
+
+    """
+    Maintain the old front-end format.
+
+    Returns a simple list of names.
+    """
+
+    software = extract_onet_skills(text)
+
+    essential = extract_essential_skills(text)
+
+    names = [
+        skill["name"]
+        for skill in software
+    ]
+
+    names.extend(
+        essential
+    )
+
+    # Remove duplicates while preserving order.
+    return list(
+        dict.fromkeys(names)
+    )
 
 
 def count_words(text):
@@ -371,7 +428,10 @@ def count_words(text):
     )
 
 
-def summarize(text, max_chars=420):
+def summarize(
+    text,
+    max_chars=420
+):
 
     clean = re.sub(
         r"\s+",
@@ -389,69 +449,273 @@ def summarize(text, max_chars=420):
     )
 
 
-# --------------------------------------------------
-# JOB DESCRIPTION MATCHING
-# --------------------------------------------------
+# ==================================================
+# O*NET JOB MATCHING
+# ==================================================
 
-def job_match(text, job_description):
+def job_match(
+    text,
+    job_description
+):
 
     if not job_description.strip():
 
         return {
             "matched_keywords": [],
             "missing_keywords": [],
+            "hot_technology_matches": [],
+            "in_demand_matches": [],
             "match_percentage": None
         }
 
-    job_words = {
-        word
-        for word in re.findall(
-            r"\b[a-zA-Z][a-zA-Z+#.-]{2,}\b",
-            job_description.lower()
+    # ----------------------------------------------
+    # Find O*NET technologies mentioned in job ad
+    # ----------------------------------------------
+
+    job_software_skills = []
+
+    for skill in get_onet_software_skills():
+
+        if phrase_in_text(
+            skill["name"],
+            job_description
+        ):
+
+            job_software_skills.append(
+                skill
+            )
+
+    # ----------------------------------------------
+    # Find O*NET essential skills mentioned in job ad
+    # ----------------------------------------------
+
+    job_essential_skills = []
+
+    for skill in get_onet_essential_skill_names():
+
+        if phrase_in_text(
+            skill,
+            job_description
+        ):
+
+            job_essential_skills.append(
+                skill
+            )
+
+    # ----------------------------------------------
+    # Compare against resume / cover letter
+    # ----------------------------------------------
+
+    matched = []
+
+    missing = []
+
+    hot_matches = []
+
+    demand_matches = []
+
+    matched_weight = 0
+
+    total_weight = 0
+
+
+    for skill in job_software_skills:
+
+        name = skill["name"]
+
+        # Base O*NET technology = 2 points
+        weight = 2
+
+        # Hot Technology receives additional weight
+        if skill["hot_technology"]:
+            weight += 1
+
+        # In-demand technology receives additional weight
+        if skill["in_demand"]:
+            weight += 1
+
+        total_weight += weight
+
+        if phrase_in_text(
+            name,
+            text
+        ):
+
+            matched.append(name)
+
+            matched_weight += weight
+
+            if skill["hot_technology"]:
+
+                hot_matches.append(
+                    name
+                )
+
+            if skill["in_demand"]:
+
+                demand_matches.append(
+                    name
+                )
+
+        else:
+
+            missing.append(name)
+
+
+    # Essential skills are lower-weighted than software
+    # technologies in this prototype.
+
+    for skill in job_essential_skills:
+
+        weight = 1
+
+        total_weight += weight
+
+        if phrase_in_text(
+            skill,
+            text
+        ):
+
+            matched.append(skill)
+
+            matched_weight += weight
+
+        else:
+
+            missing.append(skill)
+
+
+    # ----------------------------------------------
+    # FALLBACK
+    # ----------------------------------------------
+    #
+    # Some job descriptions may contain no exact
+    # O*NET skill phrases.
+    #
+    # In that case, perform the old general keyword
+    # comparison rather than returning 0%.
+    # ----------------------------------------------
+
+    if total_weight == 0:
+
+        job_words = {
+            word
+            for word in re.findall(
+                r"\b[a-zA-Z]"
+                r"[a-zA-Z+#.-]{2,}\b",
+                job_description.lower()
+            )
+            if word not in STOP_WORDS
+        }
+
+        text_words = set(
+            re.findall(
+                r"\b[a-zA-Z]"
+                r"[a-zA-Z+#.-]{2,}\b",
+                text.lower()
+            )
         )
-        if word not in STOP_WORDS
-    }
 
-    text_words = set(
-        re.findall(
-            r"\b[a-zA-Z][a-zA-Z+#.-]{2,}\b",
-            text.lower()
+        general_matched = sorted(
+            job_words
+            & text_words
         )
-    )
 
-    matched = sorted(
-        job_words & text_words
-    )
-
-    missing = sorted(
-        job_words - text_words
-    )
-
-    percentage = (
-        round(
-            len(matched)
-            / len(job_words)
-            * 100
+        general_missing = sorted(
+            job_words
+            - text_words
         )
-        if job_words
-        else 0
+
+        percentage = (
+            round(
+                len(general_matched)
+                / len(job_words)
+                * 100
+            )
+            if job_words
+            else 0
+        )
+
+        return {
+            "matched_keywords":
+                general_matched[:30],
+
+            "missing_keywords":
+                general_missing[:30],
+
+            "hot_technology_matches": [],
+
+            "in_demand_matches": [],
+
+            "match_percentage":
+                percentage,
+
+            "scoring_method":
+                "general_keyword_fallback"
+        }
+
+
+    percentage = round(
+        matched_weight
+        / total_weight
+        * 100
     )
+
 
     return {
-        "matched_keywords": matched[:30],
-        "missing_keywords": missing[:30],
-        "match_percentage": percentage
+
+        "matched_keywords":
+            list(
+                dict.fromkeys(
+                    matched
+                )
+            )[:40],
+
+        "missing_keywords":
+            list(
+                dict.fromkeys(
+                    missing
+                )
+            )[:40],
+
+        "hot_technology_matches":
+            list(
+                dict.fromkeys(
+                    hot_matches
+                )
+            ),
+
+        "in_demand_matches":
+            list(
+                dict.fromkeys(
+                    demand_matches
+                )
+            ),
+
+        "match_percentage":
+            percentage,
+
+        "matched_weight":
+            matched_weight,
+
+        "total_weight":
+            total_weight,
+
+        "scoring_method":
+            "onet_weighted"
     }
 
 
-# --------------------------------------------------
+# ==================================================
 # SHARED INFORMATION
-# --------------------------------------------------
+# ==================================================
 
 def extract_common_details(text):
 
     email = extract(
-        r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b",
+        r"\b[A-Za-z0-9._%+-]+"
+        r"@[A-Za-z0-9.-]+"
+        r"\.[A-Za-z]{2,}\b",
         text
     )
 
@@ -470,9 +734,13 @@ def extract_common_details(text):
         text
     )
 
-    name = extract_name(text)
+    name = extract_name(
+        text
+    )
 
-    skills = extract_skills(text)
+    skills = extract_skills(
+        text
+    )
 
     actions = [
         verb
@@ -492,37 +760,81 @@ def extract_common_details(text):
     )
 
     return {
-        "name": name,
-        "email": email,
-        "phone": phone,
-        "linkedin": linkedin,
-        "skills": skills,
-        "action_verbs": actions,
-        "metrics": metrics
+
+        "name":
+            name,
+
+        "email":
+            email,
+
+        "phone":
+            phone,
+
+        "linkedin":
+            linkedin,
+
+        "skills":
+            skills,
+
+        "action_verbs":
+            actions,
+
+        "metrics":
+            metrics
     }
 
 
-# --------------------------------------------------
+# ==================================================
+# RATING HELPER
+# ==================================================
+
+def get_rating(total):
+
+    if total >= 85:
+        return "Excellent"
+
+    if total >= 70:
+        return "Strong"
+
+    if total >= 55:
+        return "Average"
+
+    if total >= 40:
+        return "Needs Improvement"
+
+    return "Weak"
+
+
+# ==================================================
 # COVER LETTER PARSER
-# --------------------------------------------------
+# ==================================================
 
 def parse_cover_letter(
     text,
     job_description=""
 ):
 
-    details = extract_common_details(text)
+    details = extract_common_details(
+        text
+    )
 
     name = details["name"]
+
     email = details["email"]
+
     phone = details["phone"]
+
     linkedin = details["linkedin"]
 
     skills = details["skills"]
+
     actions = details["action_verbs"]
+
     metrics = details["metrics"]
 
-    words = count_words(text)
+    words = count_words(
+        text
+    )
 
     sentences = max(
         1,
@@ -536,7 +848,11 @@ def parse_cover_letter(
         ])
     )
 
-    avg_sentence = words / sentences
+    avg_sentence = (
+        words
+        / sentences
+    )
+
 
     greeting = bool(
         re.search(
@@ -547,14 +863,20 @@ def parse_cover_letter(
         )
     )
 
+
     closing = bool(
         re.search(
             r"(?mi)^\s*"
-            r"(sincerely|regards|best regards|thank you|respectfully)"
+            r"(sincerely"
+            r"|regards"
+            r"|best regards"
+            r"|thank you"
+            r"|respectfully)"
             r"[,:\s]*$",
             text
         )
     )
+
 
     interest = bool(
         re.search(
@@ -570,271 +892,455 @@ def parse_cover_letter(
         )
     )
 
+
     company = bool(
         re.search(
-            r"\bat [A-Z][A-Za-z0-9&.' -]{2,}\b",
+            r"\bat "
+            r"[A-Z]"
+            r"[A-Za-z0-9&.' -]{2,}\b",
             text
         )
     )
+
 
     match = job_match(
         text,
         job_description
     )
 
+
     scores = {}
 
-    scores["Contact Information"] = (
+
+    scores[
+        "Contact Information"
+    ] = (
+
         (3 if name else 0)
+
         + (3 if email else 0)
+
         + (2 if phone else 0)
+
         + (2 if linkedin else 0)
+
     )
 
-    scores["Professional Structure"] = (
+
+    scores[
+        "Professional Structure"
+    ] = (
+
         (5 if greeting else 0)
+
         + (5 if closing else 0)
+
         + (5 if sentences >= 3 else 0)
+
     )
+
 
     relevance = (
         (8 if interest else 0)
         + (6 if company else 0)
     )
 
-    if match["match_percentage"] is not None:
 
-        if match["match_percentage"] >= 30:
+    if (
+        match["match_percentage"]
+        is not None
+    ):
+
+        if (
+            match["match_percentage"]
+            >= 70
+        ):
+
             relevance += 6
 
-        elif match["match_percentage"] >= 15:
-            relevance += 4
+        elif (
+            match["match_percentage"]
+            >= 45
+        ):
 
-        elif match["match_percentage"] > 0:
-            relevance += 2
+            relevance += 5
+
+        elif (
+            match["match_percentage"]
+            >= 25
+        ):
+
+            relevance += 3
+
+        elif (
+            match["match_percentage"]
+            > 0
+        ):
+
+            relevance += 1
 
     elif skills:
+
         relevance += 4
 
-    scores["Job Relevance"] = min(
+
+    scores[
+        "Job Relevance"
+    ] = min(
         relevance,
         20
     )
 
+
     skill_score = (
-        min(len(skills) * 3, 12)
-        + (
-            4 if len(actions) >= 4
-            else 2 if len(actions) >= 2
+
+        min(
+            len(skills) * 2,
+            12
+        )
+
+        +
+
+        (
+            4
+            if len(actions) >= 4
+
+            else 2
+            if len(actions) >= 2
+
             else 0
         )
-        + (
-            4 if len(metrics) >= 2
-            else 2 if len(metrics) == 1
+
+        +
+
+        (
+            4
+            if len(metrics) >= 2
+
+            else 2
+            if len(metrics) == 1
+
             else 0
         )
+
     )
 
-    scores["Skills and Qualifications"] = min(
+
+    scores[
+        "Skills and Qualifications"
+    ] = min(
         skill_score,
         20
     )
 
+
     clarity = (
+
         (
-            6 if 180 <= words <= 500
-            else 4 if 120 <= words <= 650
+            6
+            if 180 <= words <= 500
+
+            else 4
+            if 120 <= words <= 650
+
             else 0
         )
+
         +
+
         (
-            5 if avg_sentence <= 24
-            else 3 if avg_sentence <= 30
+            5
+            if avg_sentence <= 24
+
+            else 3
+            if avg_sentence <= 30
+
             else 0
         )
+
     )
+
 
     if not re.search(
         r"\b("
-        r"stuff|whatever|probably|kinda|sort of"
+        r"stuff"
+        r"|whatever"
+        r"|probably"
+        r"|kinda"
+        r"|sort of"
         r")\b",
         text,
         re.I
     ):
+
         clarity += 4
 
-    scores["Writing Clarity"] = min(
+
+    scores[
+        "Writing Clarity"
+    ] = min(
         clarity,
         15
     )
 
-    scores["Personalization"] = min(
+
+    scores[
+        "Personalization"
+    ] = min(
+
         (5 if company else 0)
+
         +
+
         (
-            3 if re.search(
+            3
+            if re.search(
                 r"\b("
-                r"because|particularly|specifically"
+                r"because"
+                r"|particularly"
+                r"|specifically"
                 r")\b",
                 text,
                 re.I
             )
+
             else 0
         )
+
         +
+
         (
             2
             if "your company"
             not in text.lower()
+
             else 0
         ),
+
         10
     )
 
-    scores["Completeness"] = min(
+
+    scores[
+        "Completeness"
+    ] = min(
+
         (4 if words >= 150 else 0)
+
         + (2 if greeting else 0)
+
         + (2 if closing else 0)
+
         + (2 if interest else 0),
+
         10
     )
+
 
     total = max(
         1,
         min(
-            sum(scores.values()),
+            sum(
+                scores.values()
+            ),
             100
         )
     )
 
-    if total >= 85:
-        rating = "Excellent"
 
-    elif total >= 70:
-        rating = "Strong"
+    rating = get_rating(
+        total
+    )
 
-    elif total >= 55:
-        rating = "Average"
-
-    elif total >= 40:
-        rating = "Needs Improvement"
-
-    else:
-        rating = "Weak"
 
     strengths = []
+
     improvements = []
+
 
     checks = [
 
         (
-            scores["Contact Information"] >= 8,
+            scores[
+                "Contact Information"
+            ] >= 8,
+
             "Includes clear applicant contact information.",
+
             "Add your full name, email, phone number, and LinkedIn profile."
         ),
 
         (
-            scores["Professional Structure"] >= 12,
+            scores[
+                "Professional Structure"
+            ] >= 12,
+
             "Uses a clear professional cover letter structure.",
+
             "Include a professional greeting, body paragraphs, and closing."
         ),
 
         (
-            scores["Job Relevance"] >= 15,
+            scores[
+                "Job Relevance"
+            ] >= 15,
+
             "Connects the applicant's background to the target role.",
+
             "Explain why you want this role and connect experience to requirements."
         ),
 
         (
-            scores["Skills and Qualifications"] >= 14,
+            scores[
+                "Skills and Qualifications"
+            ] >= 14,
+
             "Provides strong evidence of relevant skills and qualifications.",
-            "Add more relevant skills, accomplishments, and measurable results."
+
+            "Add more relevant O*NET skills, accomplishments, and measurable results."
         ),
 
         (
-            scores["Writing Clarity"] >= 12,
+            scores[
+                "Writing Clarity"
+            ] >= 12,
+
             "Writing is concise, professional, and easy to read.",
+
             "Use clearer wording, shorter sentences, and a professional tone."
         ),
 
         (
-            scores["Personalization"] >= 7,
+            scores[
+                "Personalization"
+            ] >= 7,
+
             "The letter appears tailored to the employer.",
+
             "Mention the employer by name and explain why it interests you."
         ),
 
         (
-            scores["Completeness"] >= 8,
+            scores[
+                "Completeness"
+            ] >= 8,
+
             "Includes the major expected cover letter components.",
+
             "Add a clear introduction, qualifications, employer connection, and closing."
         )
     ]
 
+
     for passed, good, fix in checks:
 
         if passed:
-            strengths.append(good)
+
+            strengths.append(
+                good
+            )
 
         else:
-            improvements.append(fix)
+
+            improvements.append(
+                fix
+            )
+
 
     return {
+
         **details,
 
-        "word_count": words,
+        "word_count":
+            words,
 
-        "summary": summarize(text),
+        "summary":
+            summarize(text),
 
-        "score": total,
+        "score":
+            total,
 
-        "rating": rating,
+        "rating":
+            rating,
 
-        "category_scores": scores,
+        "category_scores":
+            scores,
 
-        "strengths": strengths,
+        "strengths":
+            strengths,
 
-        "improvements": improvements,
+        "improvements":
+            improvements,
 
         "readability": {
-            "sentence_count": sentences,
-            "average_sentence_length": round(
-                avg_sentence,
-                1
-            )
+
+            "sentence_count":
+                sentences,
+
+            "average_sentence_length":
+                round(
+                    avg_sentence,
+                    1
+                )
         },
 
-        "job_match": match
+        "job_match":
+            match,
+
+        "skill_source":
+            "O*NET 30.3"
     }
 
 
-# --------------------------------------------------
+# ==================================================
 # RESUME PARSER
-# --------------------------------------------------
+# ==================================================
 
 def parse_resume(
     text,
     job_description=""
 ):
 
-    details = extract_common_details(text)
+    details = extract_common_details(
+        text
+    )
 
-    skills = details["skills"]
-    actions = details["action_verbs"]
-    metrics = details["metrics"]
 
-    words = count_words(text)
+    skills = details[
+        "skills"
+    ]
+
+
+    actions = details[
+        "action_verbs"
+    ]
+
+
+    metrics = details[
+        "metrics"
+    ]
+
+
+    words = count_words(
+        text
+    )
+
 
     match = job_match(
         text,
         job_description
     )
 
+
     sections = {
 
         "Summary": bool(
             re.search(
                 r"(?mi)^\s*"
-                r"(professional summary|summary|profile|objective)"
+                r"(professional summary"
+                r"|summary"
+                r"|profile"
+                r"|objective)"
                 r"\s*:?\s*$",
                 text
             )
@@ -843,7 +1349,10 @@ def parse_resume(
         "Experience": bool(
             re.search(
                 r"(?mi)^\s*"
-                r"(work experience|professional experience|experience|employment)"
+                r"(work experience"
+                r"|professional experience"
+                r"|experience"
+                r"|employment)"
                 r"\s*:?\s*$",
                 text
             )
@@ -851,7 +1360,9 @@ def parse_resume(
 
         "Education": bool(
             re.search(
-                r"(?mi)^\s*education\s*:?\s*$",
+                r"(?mi)^\s*"
+                r"education"
+                r"\s*:?\s*$",
                 text
             )
         ),
@@ -859,7 +1370,9 @@ def parse_resume(
         "Skills": bool(
             re.search(
                 r"(?mi)^\s*"
-                r"(skills|technical skills|core competencies)"
+                r"(skills"
+                r"|technical skills"
+                r"|core competencies)"
                 r"\s*:?\s*$",
                 text
             )
@@ -868,7 +1381,9 @@ def parse_resume(
         "Projects": bool(
             re.search(
                 r"(?mi)^\s*"
-                r"(projects|academic projects|personal projects)"
+                r"(projects"
+                r"|academic projects"
+                r"|personal projects)"
                 r"\s*:?\s*$",
                 text
             )
@@ -877,12 +1392,15 @@ def parse_resume(
         "Certifications": bool(
             re.search(
                 r"(?mi)^\s*"
-                r"(certifications|licenses|certificates)"
+                r"(certifications"
+                r"|licenses"
+                r"|certificates)"
                 r"\s*:?\s*$",
                 text
             )
         )
     }
+
 
     education_terms = bool(
         re.search(
@@ -903,45 +1421,89 @@ def parse_resume(
         )
     )
 
+
     bullet_count = len(
         re.findall(
-            r"(?m)^\s*(?:[-•*]|\d+[.)])\s+",
+            r"(?m)^\s*"
+            r"(?:[-•*]|\d+[.)])"
+            r"\s+",
             text
         )
     )
 
+
     scores = {}
 
 
-    # CONTACT INFORMATION - 10
-    scores["Contact Information"] = min(
+    # ----------------------------------------------
+    # CONTACT INFORMATION / 10
+    # ----------------------------------------------
 
-        (3 if details["name"] else 0)
+    scores[
+        "Contact Information"
+    ] = min(
 
-        + (3 if details["email"] else 0)
+        (
+            3
+            if details["name"]
+            else 0
+        )
 
-        + (2 if details["phone"] else 0)
+        +
 
-        + (2 if details["linkedin"] else 0),
+        (
+            3
+            if details["email"]
+            else 0
+        )
+
+        +
+
+        (
+            2
+            if details["phone"]
+            else 0
+        )
+
+        +
+
+        (
+            2
+            if details["linkedin"]
+            else 0
+        ),
 
         10
     )
 
 
-    # STRUCTURE - 20
+    # ----------------------------------------------
+    # RESUME STRUCTURE / 20
+    # ----------------------------------------------
+
     structure_score = 0
 
-    structure_score += (
-        5 if sections["Experience"] else 0
-    )
 
     structure_score += (
-        5 if sections["Education"] else 0
+        5
+        if sections["Experience"]
+        else 0
     )
 
+
     structure_score += (
-        5 if sections["Skills"] else 0
+        5
+        if sections["Education"]
+        else 0
     )
+
+
+    structure_score += (
+        5
+        if sections["Skills"]
+        else 0
+    )
+
 
     structure_score += (
         3
@@ -952,35 +1514,68 @@ def parse_resume(
         else 0
     )
 
+
     structure_score += (
-        2 if bullet_count >= 3 else 0
+        2
+        if bullet_count >= 3
+        else 0
     )
 
-    scores["Resume Structure"] = min(
+
+    scores[
+        "Resume Structure"
+    ] = min(
         structure_score,
         20
     )
 
 
-    # SKILLS / JOB RELEVANCE - 25
+    # ----------------------------------------------
+    # SKILLS AND JOB RELEVANCE / 25
+    # ----------------------------------------------
+
     relevance_score = min(
-        len(skills) * 2,
-        12
+        len(skills) * 1.5,
+        10
     )
 
-    if match["match_percentage"] is not None:
 
-        if match["match_percentage"] >= 45:
+    if (
+        match["match_percentage"]
+        is not None
+    ):
+
+        percentage = (
+            match[
+                "match_percentage"
+            ]
+        )
+
+
+        if percentage >= 80:
+
+            relevance_score += 15
+
+        elif percentage >= 65:
+
             relevance_score += 13
 
-        elif match["match_percentage"] >= 30:
-            relevance_score += 10
+        elif percentage >= 50:
 
-        elif match["match_percentage"] >= 15:
-            relevance_score += 7
+            relevance_score += 11
 
-        elif match["match_percentage"] > 0:
-            relevance_score += 3
+        elif percentage >= 35:
+
+            relevance_score += 8
+
+        elif percentage >= 20:
+
+            relevance_score += 5
+
+        elif percentage > 0:
+
+            relevance_score += 2
+
 
     else:
 
@@ -989,35 +1584,35 @@ def parse_resume(
             8
         )
 
-    scores["Skills and Job Relevance"] = min(
-        relevance_score,
+
+    scores[
+        "Skills and Job Relevance"
+    ] = min(
+        round(
+            relevance_score
+        ),
         25
     )
 
 
-    # EXPERIENCE IMPACT - 20
+    # ----------------------------------------------
+    # EXPERIENCE IMPACT / 20
+    # ----------------------------------------------
+
     impact_score = (
 
         (
-            8 if len(actions) >= 8
+            8
+            if len(actions) >= 8
 
-            else 6 if len(actions) >= 5
+            else 6
+            if len(actions) >= 5
 
-            else 4 if len(actions) >= 3
+            else 4
+            if len(actions) >= 3
 
-            else 2 if len(actions) >= 1
-
-            else 0
-        )
-
-        +
-
-        (
-            8 if len(metrics) >= 4
-
-            else 6 if len(metrics) >= 2
-
-            else 3 if len(metrics) == 1
+            else 2
+            if len(actions) >= 1
 
             else 0
         )
@@ -1025,65 +1620,112 @@ def parse_resume(
         +
 
         (
-            4 if bullet_count >= 5
+            8
+            if len(metrics) >= 4
 
-            else 2 if bullet_count >= 2
+            else 6
+            if len(metrics) >= 2
+
+            else 3
+            if len(metrics) == 1
 
             else 0
         )
+
+        +
+
+        (
+            4
+            if bullet_count >= 5
+
+            else 2
+            if bullet_count >= 2
+
+            else 0
+        )
+
     )
 
-    scores["Experience Impact"] = min(
+
+    scores[
+        "Experience Impact"
+    ] = min(
         impact_score,
         20
     )
 
 
-    # EDUCATION - 10
+    # ----------------------------------------------
+    # EDUCATION / 10
+    # ----------------------------------------------
+
     education_score = 0
 
-    education_score += (
-        6 if sections["Education"] else 0
-    )
 
     education_score += (
-        4 if education_terms else 0
+        6
+        if sections["Education"]
+        else 0
     )
 
-    scores["Education"] = min(
+
+    education_score += (
+        4
+        if education_terms
+        else 0
+    )
+
+
+    scores[
+        "Education"
+    ] = min(
         education_score,
         10
     )
 
 
-    # ATS READABILITY - 15
+    # ----------------------------------------------
+    # ATS READABILITY / 15
+    # ----------------------------------------------
+
     ats_score = 0
 
-    ats_score += (
-        5 if 150 <= words <= 1200
 
-        else 3 if 100 <= words <= 1600
+    ats_score += (
+
+        5
+        if 150 <= words <= 1200
+
+        else 3
+        if 100 <= words <= 1600
 
         else 0
+
     )
+
 
     section_count = len([
         value
-        for value in sections.values()
+        for value
+        in sections.values()
         if value
     ])
 
+
     ats_score += (
-        4 if section_count >= 3
+        4
+        if section_count >= 3
         else 2
     )
 
+
     ats_score += (
-        3 if bullet_count >= 3
+        3
+        if bullet_count >= 3
         else 1
     )
 
-    # Give basic credit for dates/years being present.
+
     has_dates = bool(
         re.search(
             r"\b(?:19|20)\d{2}\b",
@@ -1091,12 +1733,17 @@ def parse_resume(
         )
     )
 
+
     ats_score += (
-        3 if has_dates
+        3
+        if has_dates
         else 1
     )
 
-    scores["ATS Readability"] = min(
+
+    scores[
+        "ATS Readability"
+    ] = min(
         ats_score,
         15
     )
@@ -1105,36 +1752,30 @@ def parse_resume(
     total = max(
         1,
         min(
-            sum(scores.values()),
+            sum(
+                scores.values()
+            ),
             100
         )
     )
 
 
-    if total >= 85:
-        rating = "Excellent"
-
-    elif total >= 70:
-        rating = "Strong"
-
-    elif total >= 55:
-        rating = "Average"
-
-    elif total >= 40:
-        rating = "Needs Improvement"
-
-    else:
-        rating = "Weak"
+    rating = get_rating(
+        total
+    )
 
 
     strengths = []
+
     improvements = []
 
 
     checks = [
 
         (
-            scores["Contact Information"] >= 8,
+            scores[
+                "Contact Information"
+            ] >= 8,
 
             "Includes clear applicant contact information.",
 
@@ -1142,7 +1783,9 @@ def parse_resume(
         ),
 
         (
-            scores["Resume Structure"] >= 15,
+            scores[
+                "Resume Structure"
+            ] >= 15,
 
             "Uses recognizable resume sections and organization.",
 
@@ -1150,15 +1793,19 @@ def parse_resume(
         ),
 
         (
-            scores["Skills and Job Relevance"] >= 18,
+            scores[
+                "Skills and Job Relevance"
+            ] >= 18,
 
-            "Shows a strong set of relevant skills and keywords.",
+            "Shows strong alignment with O*NET skills found in the target job.",
 
-            "Add skills and terminology that are genuinely relevant to the target job."
+            "Add O*NET-recognized skills that genuinely match the target job requirements."
         ),
 
         (
-            scores["Experience Impact"] >= 14,
+            scores[
+                "Experience Impact"
+            ] >= 14,
 
             "Uses action-oriented accomplishments and measurable results.",
 
@@ -1166,7 +1813,9 @@ def parse_resume(
         ),
 
         (
-            scores["Education"] >= 8,
+            scores[
+                "Education"
+            ] >= 8,
 
             "Education information is clearly represented.",
 
@@ -1174,7 +1823,9 @@ def parse_resume(
         ),
 
         (
-            scores["ATS Readability"] >= 11,
+            scores[
+                "ATS Readability"
+            ] >= 11,
 
             "The resume has a structure that should be relatively easy to parse.",
 
@@ -1186,33 +1837,52 @@ def parse_resume(
     for passed, good, fix in checks:
 
         if passed:
-            strengths.append(good)
+
+            strengths.append(
+                good
+            )
 
         else:
-            improvements.append(fix)
+
+            improvements.append(
+                fix
+            )
 
 
     return {
 
         **details,
 
-        "word_count": words,
+        "word_count":
+            words,
 
-        "summary": summarize(text),
+        "summary":
+            summarize(text),
 
-        "score": total,
+        "score":
+            total,
 
-        "rating": rating,
+        "rating":
+            rating,
 
-        "category_scores": scores,
+        "category_scores":
+            scores,
 
-        "strengths": strengths,
+        "strengths":
+            strengths,
 
-        "improvements": improvements,
+        "improvements":
+            improvements,
 
-        "sections_found": sections,
+        "sections_found":
+            sections,
 
-        "bullet_count": bullet_count,
+        "bullet_count":
+            bullet_count,
 
-        "job_match": match
+        "job_match":
+            match,
+
+        "skill_source":
+            "O*NET 30.3"
     }
