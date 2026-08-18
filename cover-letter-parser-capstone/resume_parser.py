@@ -1,6 +1,6 @@
 #If the spaCy model isn't installed, the parser automatically falls back to
 #regex-only extraction, so it still runs.
-
+""""
 import re
 import os
 
@@ -81,6 +81,213 @@ def extract_name(text):
         words = line.split()
         if 2 <= len(words) <= 3 and all(w[0].isupper() for w in words if w):
             return line
+    return None
+
+
+# skills dictionary. Keys are the CANONICAL skill name; the list
+# holds aliases/variants that should all normalize to that canonical name.
+# plans to extend list
+SKILLS = {
+    "Python":        ["python"],
+    "JavaScript":    ["javascript", "js", "ecmascript"],
+    "TypeScript":    ["typescript", "ts"],
+    "Java":          ["java"],
+    "C++":           ["c++", "cpp"],
+    "C#":            ["c#", "csharp"],
+    "SQL":           ["sql", "mysql", "postgresql", "postgres", "sqlite"],
+    "React":         ["react", "react.js", "reactjs"],
+    "Node.js":       ["node", "node.js", "nodejs"],
+    "HTML":          ["html", "html5"],
+    "CSS":           ["css", "css3"],
+    "Git":           ["git", "github", "version control"],
+    "Docker":        ["docker", "containerization"],
+    "AWS":           ["aws", "amazon web services"],
+    "Machine Learning": ["machine learning", "ml"],
+    "REST API":      ["rest", "rest api", "restful", "api"],
+    "Django":        ["django"],
+    "Flask":         ["flask"],
+    "spaCy":         ["spacy"],
+    "MongoDB":       ["mongodb", "mongo", "nosql"],
+}
+
+# longest aliases first so multi-word aliases match before single words.
+_ALIAS_TO_CANON = []
+for canon, aliases in SKILLS.items():
+    for alias in aliases:
+        _ALIAS_TO_CANON.append((alias, canon))
+
+def _alias_length(pair):
+    return len(pair[0])
+
+_ALIAS_TO_CANON.sort(key=_alias_length, reverse=True)
+
+def extract_skills(text):
+    #Return a sorted list of canonical skills found in the text.
+    #Matching is done on word boundaries against the alias table, then normalized names
+    lowered = text.lower()
+    found = set()
+    for alias, canon in _ALIAS_TO_CANON:
+        # word-boundary match; re.escape handles things like c++ and c#
+        # '.' is in the lookarounds so "js" doesn't match inside "Node.js"
+        pattern = r"(?<![\w+#.])" + re.escape(alias) + r"(?![\w+#.])"
+        if re.search(pattern, lowered):
+            found.add(canon)
+    return sorted(found)
+
+
+# Experience
+def extract_experience_years(text):
+    # explicit statement, e.g. "5 years of experience"
+    stated = re.search(r"(\d{1,2})\+?\s*years?\s+(?:of\s+)?experience", text, re.I)
+    if stated:
+        return int(stated.group(1))
+
+    # estimate by summing individual job date ranges, e.g. "2020 - 2024"
+    # or "2022 - Present". Summing (not global min/max) avoids counting the
+    # gap between a graduation year and a first job as work experience.
+    CURRENT_YEAR = 2026
+    range_re = re.compile(
+        r"((?:19|20)\d{2})\s*[-\u2013to]+\s*((?:19|20)\d{2}|present|current|now)",
+        re.I,
+    )
+    total = 0
+    for start, end in range_re.findall(text):
+        start = int(start)
+        end = CURRENT_YEAR if not end.isdigit() else int(end)
+        span = end - start
+        if 0 < span <= 50:          # realistic check
+            total += span
+    return total if total else None
+
+
+# parse a whole resume into a structured dict
+def parse_resume(file):
+    raw_text = extract_text(file)
+
+    if not raw_text:
+        return {
+            "parsed": False,
+            "reason": "No extractable text (possibly a scanned/image-only file).",
+            "file": os.path.basename(file),
+        }
+
+    return {
+        "parsed": True,
+        "file": os.path.basename(file),
+        "name": extract_name(raw_text),
+        "email": extract_email(raw_text),
+        "phone": extract_phone(raw_text),
+        "skills": extract_skills(raw_text),
+        "experience_years": extract_experience_years(raw_text),
+    }
+
+"""
+#If the spaCy model isn't installed, the parser automatically falls back to
+#regex-only extraction, so it still runs.
+
+import re
+import os
+
+try:
+    import spacy
+    try:
+        _NLP = spacy.load("en_core_web_sm")
+    except OSError:
+        _NLP = None            # library present, model not downloaded
+except ImportError:
+    _NLP = None                # spaCy not installed at all
+
+
+# Text extraction  (PDF and DOCX -> raw text)
+def extract_text(file):
+    #Return the raw text of a resume file (.pdf or .docx).
+    #Returns an empty string if no text could be extracted
+    ext = os.path.splitext(file)[1].lower()
+    if ext == ".pdf":
+        return _extract_pdf(file)
+    elif ext in (".docx", ".doc"):
+        return _extract_docx(file)
+    else:
+        raise ValueError(f"Unsupported file type: {ext}")
+
+
+def _extract_pdf(file):
+    import fitz  # PyMuPDF
+    text_parts = []
+    with fitz.open(file) as doc:
+        for page in doc:
+            text_parts.append(page.get_text("text"))
+    return "\n".join(text_parts).strip()
+
+
+def _extract_docx(file):
+    import docx
+    document = docx.Document(file)
+    parts = [p.text for p in document.paragraphs]
+    # pull text out of any tables
+    for table in document.tables:
+        for row in table.rows:
+            for cell in row.cells:
+                if cell.text:
+                    parts.append(cell.text)
+    return "\n".join(parts).strip()
+
+
+EMAIL_RE = re.compile(r"[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}")
+# Matches formats like 123-456-7890, (123) 456-7890, +1 123 456 7890
+PHONE_RE = re.compile(r"(?:\+?\d{1,2}[\s.\-]?)?(?:\(?\d{3}\)?[\s.\-]?)\d{3}[\s.\-]?\d{4}")
+YEAR_RE = re.compile(r"(19|20)\d{2}")
+
+
+def extract_email(text):
+    match = EMAIL_RE.search(text)
+    return match.group(0) if match else None
+
+
+def extract_phone(text):
+    match = PHONE_RE.search(text)
+    return match.group(0).strip() if match else None
+
+
+def extract_name(text):
+    """Extract the candidate's name.
+
+    1. Check the first few non-empty lines for a name-like line (2-3
+       alphabetic words). Handles ALL-CAPS names, which spaCy often misses.
+    2. Fall back to spaCy PERSON entities near the top only, so it cannot
+       grab a stray word like "Docker" from deep in the resume.
+    """
+    lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
+    bad_syms = [chr(124), chr(58), chr(44), chr(47), chr(92)]  # | : , / backslash
+
+    def looks_like_name(line):
+        if not line or "@" in line or any(ch.isdigit() for ch in line):
+            return False
+        if any(sym in line for sym in bad_syms):
+            return False
+        words = line.split()
+        if not (2 <= len(words) <= 3):
+            return False
+        if not all(w.replace(".", "").isalpha() for w in words):
+            return False
+        low = line.lower()
+        headers = ["resume", "curriculum", "summary", "experience",
+                   "education", "skills", "objective"]
+        if any(h in low for h in headers):
+            return False
+        return True
+
+    for line in lines[:5]:
+        if looks_like_name(line):
+            return line.title() if line.isupper() else line
+
+    if _NLP is not None:
+        top_text = chr(10).join(lines[:5])
+        doc = _NLP(top_text)
+        for ent in doc.ents:
+            if ent.label_ == "PERSON":
+                return ent.text.strip()
+
     return None
 
 
