@@ -523,7 +523,7 @@ def job_match(
 
         name = skill["name"]
 
-        # Base O*NET technology = 2 points
+        # Base O*NET technology = 2 points this part
         weight = 2
 
         # Hot Technology receives additional weight
