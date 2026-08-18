@@ -5,8 +5,8 @@ import requests
 from flask import Flask, jsonify, render_template, request
 from werkzeug.utils import secure_filename
 
-from parser import read_document, parse_cover_letter, parse_resume
-
+from parser import read_document, parse_cover_letter
+from resume_adapter import parse_resume
 
 app = Flask(__name__)
 
@@ -67,6 +67,13 @@ def build_backend_payload(result, original_name, document_type):
 
 
 def send_to_backend(parsed_result):
+    # pick the endpoint based on what kind of document this is
+    doc_type = parsed_result.get("document_type", "cover_letter")
+    if doc_type == "resume":
+        endpoint = "/api/parser-results"          # resume endpoint
+    else:
+        endpoint = "/api/cover-letter-results"    # cover-letter endpoint
+
     try:
         login_response = requests.post(
             f"{BACKEND_URL}/api/auth/login",
@@ -84,7 +91,7 @@ def send_to_backend(parsed_result):
             return None
 
         backend_response = requests.post(
-            f"{BACKEND_URL}/api/cover-letter-results",
+            f"{BACKEND_URL}{endpoint}",
             json=parsed_result,
             headers={
                 "Authorization": f"Bearer {token}"
@@ -92,7 +99,8 @@ def send_to_backend(parsed_result):
             timeout=10
         )
 
-        print("Backend status:", backend_response.status_code)
+        print(f"Backend status ({doc_type} -> {endpoint}):",
+              backend_response.status_code)
         print("Backend response:", backend_response.text)
 
         return backend_response
@@ -100,7 +108,6 @@ def send_to_backend(parsed_result):
     except Exception as exc:
         print("Could not send parser result to backend:", exc)
         return None
-
 
 def allowed_file(filename):
     return (
