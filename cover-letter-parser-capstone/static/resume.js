@@ -621,10 +621,6 @@ function renderResults(data) {
         safe(data.phone);
 
 
-    document.getElementById(
-        "linkedin"
-    ).textContent =
-        safe(data.linkedin);
 
 
     document.getElementById(
